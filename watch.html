@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watch Explorer</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #16181d; --muted: #5d6470;
+    --border: #dde1e7; --accent: #0b6bcb; --accent-text: #ffffff;
+    --ok: #1a7f37; --warn: #b35900; --err: #c42b1c; --code: #eef1f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111316; --card: #1b1e23; --text: #e8eaed; --muted: #9aa1ab;
+      --border: #2d323a; --accent: #4c9ef0; --accent-text: #0b0d10;
+      --ok: #4ac26b; --warn: #e3a34a; --err: #ff7b72; --code: #23272e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.35rem; margin: 4px 0 2px; }
+  h2 { font-size: 1.05rem; margin: 0 0 8px; }
+  p { margin: 4px 0 10px; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px; margin: 12px 0;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button {
+    font: inherit; border: 1px solid var(--border); background: var(--card);
+    color: var(--text); border-radius: 8px; padding: 8px 12px; cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.small { padding: 4px 9px; font-size: .85rem; }
+  input[type=text] {
+    font: 14px ui-monospace, SFMono-Regular, Menlo, monospace;
+    flex: 1 1 180px; min-width: 0; padding: 7px 9px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  }
+  label { font-size: .9rem; display: inline-flex; gap: 6px; align-items: center; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; overflow-wrap: anywhere; }
+  .status { font-weight: 600; }
+  .status.ok { color: var(--ok); } .status.err { color: var(--err); } .status.warn { color: var(--warn); }
+  .svc { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
+  .svc:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+  .svc-name { font-weight: 600; }
+  .chr { background: var(--code); border-radius: 8px; padding: 9px; margin: 8px 0; }
+  .props { display: inline-flex; gap: 4px; flex-wrap: wrap; margin-left: 4px; }
+  .prop { font-size: .72rem; border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; color: var(--muted); }
+  .value { margin-top: 6px; }
+  #log {
+    background: var(--code); border-radius: 8px; padding: 8px; height: 300px;
+    overflow-y: auto; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .l-in { color: var(--ok); } .l-out { color: var(--accent); } .l-err { color: var(--err); }
+  .stat { font-size: 1.6rem; font-weight: 700; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Watch Explorer</h1>
+  <p class="muted">Connect to a Bluetooth Low Energy watch from Chrome, see every service it exposes, read values, listen for data and send raw bytes. Built for the "Watch4 Pro" (RDFit app).</p>
+
+  <div class="card" id="unsupported" hidden>
+    <span class="status err">Web Bluetooth isn't available here.</span>
+    <p>Open this page in <b>Chrome on Android</b> (or Chrome/Edge on a computer), over https.</p>
+  </div>
+
+  <div class="card">
+    <h2>1. Connect</h2>
+    <p class="muted">Tip: force-stop the RDFit app first so it isn't busy talking to the watch.</p>
+    <div class="row">
+      <button class="primary" id="btnConnect">Connect to watch</button>
+      <button id="btnDisconnect" disabled>Disconnect</button>
+      <label><input type="checkbox" id="chkAll"> Show all devices</label>
+    </div>
+    <p>Status: <span class="status" id="status">Not connected</span></p>
+  </div>
+
+  <div class="card" id="statsCard" hidden>
+    <h2>Steps (WeChat sport service)</h2>
+    <div class="stats">
+      <div><div class="muted">Steps</div><div class="stat" id="stSteps">–</div></div>
+      <div><div class="muted">Distance (m)</div><div class="stat" id="stDist">–</div></div>
+      <div><div class="muted">Calories</div><div class="stat" id="stCal">–</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2. Services &amp; characteristics</h2>
+    <div id="services" class="muted">Connect to see what the watch offers.</div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content: space-between">
+      <h2 style="margin:0">3. Log</h2>
+      <div class="row">
+        <button class="small" id="btnCopy">Copy log</button>
+        <button class="small" id="btnClear">Clear</button>
+      </div>
+    </div>
+    <p class="muted">Green = data from the watch, blue = data you sent.</p>
+    <div id="log"></div>
+  </div>
+</main>
+
+<script>
+// Services seen on the Watch4 Pro in nRF Connect, plus common standard ones.
+// Web Bluetooth only lets us open services listed here.
+const KNOWN_SERVICES = {
+  '0000ae00-0000-1000-8000-00805f9b34fb': 'JieLi chip service (0xAE00) – likely the main data channel',
+  '6e40ab01-b5a3-f393-e0a9-e50e24dcca9e': 'Custom UART-style service (6e40ab01…)',
+  '0000fee7-0000-1000-8000-00805f9b34fb': 'WeChat sport service (0xFEE7) – step count',
+  '00003802-0000-1000-8000-00805f9b34fb': 'Vendor service (0x3802)',
+  'cc353442-be58-4ea2-876e-11d8d6976366': 'Vendor service (cc353442…)',
+  '0000180a-0000-1000-8000-00805f9b34fb': 'Device Information',
+  '0000180f-0000-1000-8000-00805f9b34fb': 'Battery',
+  '0000180d-0000-1000-8000-00805f9b34fb': 'Heart Rate',
+  '00001800-0000-1000-8000-00805f9b34fb': 'Generic Access',
+};
+const KNOWN_CHARS = {
+  '0000fea1-0000-1000-8000-00805f9b34fb': 'WeChat steps',
+  '0000fea2-0000-1000-8000-00805f9b34fb': 'WeChat step target',
+  '00002a19-0000-1000-8000-00805f9b34fb': 'Battery level',
+  '00002a37-0000-1000-8000-00805f9b34fb': 'Heart rate',
+  '00002a00-0000-1000-8000-00805f9b34fb': 'Device name',
+  '00002a29-0000-1000-8000-00805f9b34fb': 'Manufacturer',
+  '00002a24-0000-1000-8000-00805f9b34fb': 'Model number',
+  '00002a26-0000-1000-8000-00805f9b34fb': 'Firmware version',
+};
+
+const $ = id => document.getElementById(id);
+let device = null;
+
+if (!navigator.bluetooth) {
+  $('unsupported').hidden = false;
+  $('btnConnect').disabled = true;
+}
+
+// ---------- helpers ----------
+const toHex = dv => Array.from(new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength))
+  .map(b => b.toString(16).padStart(2, '0')).join(' ');
+const toAscii = dv => Array.from(new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength))
+  .map(b => (b >= 32 && b < 127) ? String.fromCharCode(b) : '.').join('');
+function parseHex(str) {
+  const clean = str.replace(/0x/gi, '').replace(/[^0-9a-f]/gi, '');
+  if (clean.length === 0 || clean.length % 2) throw new Error('Enter an even number of hex digits, e.g. "AB 01 FF"');
+  return new Uint8Array(clean.match(/../g).map(h => parseInt(h, 16)));
+}
+const shortUuid = u => /^0000([0-9a-f]{4})-0000-1000-8000-00805f9b34fb$/.test(u) ? '0x' + u.slice(4, 8).toUpperCase() : u;
+
+function log(msg, cls = '') {
+  const el = $('log');
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+function setStatus(text, cls = '') {
+  $('status').textContent = text;
+  $('status').className = 'status ' + cls;
+}
+
+// WeChat pedometer format: flags byte, then 3-byte little-endian fields.
+function decodeWeChatSteps(dv) {
+  if (dv.byteLength < 4) return;
+  const flags = dv.getUint8(0);
+  const u24 = o => dv.getUint8(o) | (dv.getUint8(o + 1) << 8) | (dv.getUint8(o + 2) << 16);
+  let off = 1;
+  $('statsCard').hidden = false;
+  if (flags & 1 && dv.byteLength >= off + 3) { $('stSteps').textContent = u24(off).toLocaleString(); off += 3; }
+  if (flags & 2 && dv.byteLength >= off + 3) { $('stDist').textContent = u24(off).toLocaleString(); off += 3; }
+  if (flags & 4 && dv.byteLength >= off + 3) { $('stCal').textContent = u24(off).toLocaleString(); }
+}
+
+function describeValue(uuid, dv) {
+  let s = `hex: ${toHex(dv)}  |  ascii: ${toAscii(dv)}`;
+  if (uuid.endsWith('2a19-0000-1000-8000-00805f9b34fb') && dv.byteLength) s += `  |  battery ${dv.getUint8(0)}%`;
+  if (uuid.startsWith('0000fea1')) decodeWeChatSteps(dv);
+  return s;
+}
+
+// ---------- connect ----------
+$('btnConnect').onclick = async () => {
+  try {
+    const opts = { optionalServices: Object.keys(KNOWN_SERVICES) };
+    if ($('chkAll').checked) opts.acceptAllDevices = true;
+    else opts.filters = [{ namePrefix: 'Watch' }, { services: ['0000ae00-0000-1000-8000-00805f9b34fb'] }];
+
+    setStatus('Choose the watch…');
+    device = await navigator.bluetooth.requestDevice(opts);
+    device.addEventListener('gattserverdisconnected', () => {
+      setStatus('Disconnected', 'warn');
+      log('Watch disconnected', 'l-err');
+      $('btnDisconnect').disabled = true;
+    });
+
+    setStatus('Connecting to ' + (device.name || 'device') + '…');
+    log('Connecting to ' + (device.name || device.id));
+    const server = await device.gatt.connect();
+    setStatus('Connected to ' + (device.name || 'device'), 'ok');
+    $('btnDisconnect').disabled = false;
+    log('Connected. Reading services…');
+    await showServices(server);
+  } catch (e) {
+    setStatus(e.name === 'NotFoundError' ? 'No device chosen' : 'Error: ' + e.message, 'err');
+    log('Error: ' + e.message, 'l-err');
+  }
+};
+
+$('btnDisconnect').onclick = () => { if (device && device.gatt.connected) device.gatt.disconnect(); };
+$('btnClear').onclick = () => { $('log').innerHTML = ''; };
+$('btnCopy').onclick = async () => {
+  try { await navigator.clipboard.writeText($('log').innerText); log('Log copied to clipboard'); }
+  catch { log('Could not copy – select the text manually', 'l-err'); }
+};
+
+// ---------- list services ----------
+async function showServices(server) {
+  const box = $('services');
+  box.innerHTML = '';
+  box.classList.remove('muted');
+  let services = [];
+  try { services = await server.getPrimaryServices(); }
+  catch (e) { log('Could not list services: ' + e.message, 'l-err'); }
+  if (!services.length) { box.textContent = 'No accessible services found.'; return; }
+
+  for (const svc of services) {
+    const sDiv = document.createElement('div');
+    sDiv.className = 'svc';
+    sDiv.innerHTML = `<div class="svc-name"></div><div class="mono muted"></div>`;
+    sDiv.children[0].textContent = KNOWN_SERVICES[svc.uuid] || 'Unknown service';
+    sDiv.children[1].textContent = shortUuid(svc.uuid);
+    box.appendChild(sDiv);
+    log(`Service ${shortUuid(svc.uuid)}`);
+
+    let chars = [];
+    try { chars = await svc.getCharacteristics(); }
+    catch (e) { log(`  can't list characteristics: ${e.message}`, 'l-err'); }
+    for (const ch of chars) sDiv.appendChild(buildChar(ch));
+  }
+}
+
+function buildChar(ch) {
+  const p = ch.properties;
+  const props = ['read', 'write', 'writeWithoutResponse', 'notify', 'indicate'].filter(k => p[k]);
+  log(`  Characteristic ${shortUuid(ch.uuid)} [${props.join(', ')}]`);
+
+  const div = document.createElement('div');
+  div.className = 'chr';
+  const head = document.createElement('div');
+  head.innerHTML = `<b></b> <span class="mono"></span><span class="props"></span>`;
+  head.children[0].textContent = KNOWN_CHARS[ch.uuid] || 'Characteristic';
+  head.children[1].textContent = shortUuid(ch.uuid);
+  for (const k of props) {
+    const t = document.createElement('span'); t.className = 'prop'; t.textContent = k; head.children[2].appendChild(t);
+  }
+  div.appendChild(head);
+
+  const val = document.createElement('div');
+  val.className = 'value mono muted';
+  const controls = document.createElement('div');
+  controls.className = 'row';
+  controls.style.marginTop = '6px';
+
+  if (p.read) {
+    const b = document.createElement('button'); b.className = 'small'; b.textContent = 'Read';
+    b.onclick = async () => {
+      try { const dv = await ch.readValue(); const s = describeValue(ch.uuid, dv); val.textContent = s; log(`READ ${shortUuid(ch.uuid)}: ${s}`, 'l-in'); }
+      catch (e) { log(`Read ${shortUuid(ch.uuid)} failed: ${e.message}`, 'l-err'); }
+    };
+    controls.appendChild(b);
+  }
+  if (p.notify || p.indicate) {
+    const b = document.createElement('button'); b.className = 'small'; b.textContent = 'Listen';
+    let on = false;
+    const handler = ev => { const s = describeValue(ch.uuid, ev.target.value); val.textContent = s; log(`FROM ${shortUuid(ch.uuid)}: ${s}`, 'l-in'); };
+    b.onclick = async () => {
+      try {
+        if (!on) { ch.addEventListener('characteristicvaluechanged', handler); await ch.startNotifications(); on = true; b.textContent = 'Stop listening'; log(`Listening on ${shortUuid(ch.uuid)}`); }
+        else { await ch.stopNotifications(); ch.removeEventListener('characteristicvaluechanged', handler); on = false; b.textContent = 'Listen'; log(`Stopped listening on ${shortUuid(ch.uuid)}`); }
+      } catch (e) { log(`Listen ${shortUuid(ch.uuid)} failed: ${e.message}`, 'l-err'); }
+    };
+    controls.appendChild(b);
+  }
+  if (p.write || p.writeWithoutResponse) {
+    const inp = document.createElement('input'); inp.type = 'text'; inp.placeholder = 'hex bytes, e.g. AB 00 04 FF';
+    const b = document.createElement('button'); b.className = 'small'; b.textContent = 'Send';
+    b.onclick = async () => {
+      try {
+        const data = parseHex(inp.value);
+        if (p.writeWithoutResponse && !p.write) await ch.writeValueWithoutResponse(data);
+        else await ch.writeValueWithResponse(data);
+        log(`SENT ${shortUuid(ch.uuid)}: ${Array.from(data).map(x => x.toString(16).padStart(2, '0')).join(' ')}`, 'l-out');
+      } catch (e) { log(`Send ${shortUuid(ch.uuid)} failed: ${e.message}`, 'l-err'); }
+    };
+    controls.appendChild(inp); controls.appendChild(b);
+  }
+  div.appendChild(controls);
+  div.appendChild(val);
+  return div;
+}
+</script>
+</body>
+</html>
